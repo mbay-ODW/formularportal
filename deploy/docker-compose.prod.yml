@@ -1,0 +1,114 @@
+# Formularportal – Produktion hinter Traefik + Authelia (Portainer-Stack).
+#
+# Voraussetzungen (bestehende Infra):
+#   - Traefik mit externem Netzwerk "traefik" und den File-Provider-Middlewares
+#     middlewares-authelia@file, middlewares-rate-limit@file, middlewares-secure-headers@file
+#   - Authelia als forward-auth (Verwaltung) und OIDC-Provider (MCP-Connector)
+#   - Images formularportal-{backend,frontend,mcp}:latest auf dem Host
+#     (scripts/portainer_deploy.py baut sie per Docker-API direkt aus dem Git-Repo)
+#
+# Zwei Router auf denselben Frontend-Container:
+#   formulare-admin   Host(FP_HOST)                         → Authelia, Zone "admin"
+#   formulare-public  Host(FP_HOST) && Kundenpfade (/p, /f, …) → ohne Login, Zone "public"
+# Traefik überschreibt den Header X-Portal-Zone je Router; das Backend lässt die
+# Verwaltungs-API nur mit Zone "admin" (oder internem API-Key) zu.
+#
+# Alle Domains/Secrets kommen aus dem Stack-Env (siehe .env.example).
+
+services:
+  backend:
+    image: formularportal-backend:latest
+    container_name: formularportal-backend
+    restart: unless-stopped
+    environment:
+      FP_DATA_DIR: /data
+      FP_PUBLIC_BASE_URL: https://${FP_HOST}
+      FP_ADMIN_GUARD: header
+      FP_INTERNAL_API_KEY: ${FP_INTERNAL_API_KEY}
+      FP_LINK_TTL_DAYS: ${FP_LINK_TTL_DAYS:-120}
+      FP_HERO_TOKEN: ${FP_HERO_TOKEN:-}
+      FP_HERO_AUTO_UPLOAD: ${FP_HERO_AUTO_UPLOAD:-false}
+      FP_HERO_DOCUMENT_TYPE_ID: ${FP_HERO_DOCUMENT_TYPE_ID:-551120}
+      FP_SMTP_HOST: ${FP_SMTP_HOST:-}
+      FP_SMTP_PORT: ${FP_SMTP_PORT:-587}
+      FP_SMTP_USER: ${FP_SMTP_USER:-}
+      FP_SMTP_PASSWORD: ${FP_SMTP_PASSWORD:-}
+      FP_SMTP_FROM: ${FP_SMTP_FROM:-}
+      FP_SMTP_SECURITY: ${FP_SMTP_SECURITY:-starttls}
+      FP_NTFY_URL: ${FP_NTFY_URL:-}
+      FP_NTFY_TOPIC: ${FP_NTFY_TOPIC:-}
+      FP_NTFY_TOKEN: ${FP_NTFY_TOKEN:-}
+      TZ: Europe/Berlin
+    volumes:
+      - formularportal_data:/data
+    networks: [intern]
+    mem_limit: 512m
+
+  frontend:
+    image: formularportal-frontend:latest
+    container_name: formularportal-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks: [intern, traefik]
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: "traefik"
+      traefik.http.services.formulare-web.loadbalancer.server.port: "80"
+      # Zonen-Header (überschreibt, was der Client ggf. mitschickt)
+      traefik.http.middlewares.formulare-zone-admin.headers.customrequestheaders.X-Portal-Zone: "admin"
+      traefik.http.middlewares.formulare-zone-public.headers.customrequestheaders.X-Portal-Zone: "public"
+      # Verwaltung – hinter Authelia
+      traefik.http.routers.formulare-admin.rule: "Host(`${FP_HOST}`)"
+      traefik.http.routers.formulare-admin.priority: "10"
+      traefik.http.routers.formulare-admin.entrypoints: "websecure"
+      traefik.http.routers.formulare-admin.tls: "true"
+      traefik.http.routers.formulare-admin.tls.certresolver: "${TRAEFIK_CERTRESOLVER:-mydnschallenge}"
+      traefik.http.routers.formulare-admin.service: "formulare-web"
+      traefik.http.routers.formulare-admin.middlewares: "middlewares-rate-limit@file,middlewares-authelia@file,middlewares-secure-headers@file,formulare-zone-admin"
+      # Kundenportal – ohne Login, nur Token-Links und statische Assets
+      traefik.http.routers.formulare-public.rule: "Host(`${FP_HOST}`) && (PathPrefix(`/p/`) || PathPrefix(`/f/`) || PathPrefix(`/api/public/`) || PathPrefix(`/assets/`) || Path(`/favicon.png`) || Path(`/logo.png`))"
+      traefik.http.routers.formulare-public.priority: "100"
+      traefik.http.routers.formulare-public.entrypoints: "websecure"
+      traefik.http.routers.formulare-public.tls: "true"
+      traefik.http.routers.formulare-public.tls.certresolver: "${TRAEFIK_CERTRESOLVER:-mydnschallenge}"
+      traefik.http.routers.formulare-public.service: "formulare-web"
+      traefik.http.routers.formulare-public.middlewares: "middlewares-rate-limit@file,middlewares-secure-headers@file,formulare-zone-public"
+
+  mcp:
+    image: formularportal-mcp:latest
+    container_name: formularportal-mcp
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      FP_API_URL: http://backend:8000
+      FP_INTERNAL_API_KEY: ${FP_INTERNAL_API_KEY}
+      MCP_API_KEY: ${MCP_API_KEY}
+      OIDC_INTROSPECTION_URL: https://${FP_MCP_HOST}/api/oidc/introspection
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-formularportal-mcp}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+    networks: [intern, traefik]
+    mem_limit: 256m
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: "traefik"
+      # MCP-Transport; OAuth-/well-known-Pfade leitet deploy/traefik-formulare-mcp-oauth.yml
+      # an Authelia weiter.
+      traefik.http.routers.formulare-mcp.rule: "Host(`${FP_MCP_HOST}`) && PathPrefix(`/mcp`)"
+      traefik.http.routers.formulare-mcp.entrypoints: "websecure"
+      traefik.http.routers.formulare-mcp.tls: "true"
+      traefik.http.routers.formulare-mcp.tls.certresolver: "${TRAEFIK_CERTRESOLVER:-mydnschallenge}"
+      traefik.http.routers.formulare-mcp.middlewares: "middlewares-rate-limit@file,middlewares-secure-headers@file"
+      traefik.http.services.formulare-mcp.loadbalancer.server.port: "3000"
+
+networks:
+  intern:
+    driver: bridge
+  traefik:
+    external: true
+
+volumes:
+  formularportal_data:

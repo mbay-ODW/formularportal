@@ -1,0 +1,30 @@
+# Authelia – Ergänzungen für das Formularportal (in configuration.yml einfügen).
+#
+# 1) Zugriffsregel für die Verwaltung. Die Kundenpfade (/p/, /f/, /api/public/,
+#    /assets/) erreichen Authelia gar nicht, weil Traefik sie über einen eigenen
+#    Router ohne forward-auth leitet. Steht bei euch bereits eine Wildcard-Regel
+#    (*.example.com → two_factor), ist nichts zu tun.
+access_control:
+  rules:
+    - domain: formulare.example.com
+      policy: two_factor
+
+# 2) OIDC-Client für den MCP-Connector (claude.ai). Secret als Hash hinterlegen:
+#      docker run --rm authelia/authelia:latest authelia crypto hash generate bcrypt \
+#        --password '<OIDC_CLIENT_SECRET>'
+identity_providers:
+  oidc:
+    clients:
+      - client_id: formularportal-mcp
+        client_name: Formularportal MCP
+        client_secret: '$2b$12$...'   # bcrypt-Hash von OIDC_CLIENT_SECRET
+        public: false
+        authorization_policy: two_factor
+        consent_mode: implicit
+        redirect_uris:
+          - https://claude.ai/api/mcp/auth_callback
+        scopes: [openid, profile, email, offline_access]
+        grant_types: [authorization_code, refresh_token]
+        response_types: [code]
+        token_endpoint_auth_method: client_secret_basic
+        introspection_endpoint_auth_method: client_secret_basic

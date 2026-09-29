@@ -1,0 +1,41 @@
+# Traefik File-Provider-Regel für den MCP-OAuth-/OIDC-Flow (claude.ai-Connector).
+#
+# Leitet die Authelia-OIDC-Endpunkte unter dem MCP-Host an Authelia weiter, damit
+# der claude.ai-Connector Login + 2FA durchlaufen kann. Der /mcp-Transport selbst
+# läuft über die Container-Labels in docker-compose.prod.yml.
+#
+# WICHTIG: Der File-Provider löst keine ${...}-Variablen auf.
+#   → mcp.example.com überall durch FP_MCP_HOST ersetzen,
+#   → certResolver ggf. an die eigene Traefik-Konfiguration anpassen,
+#   → Datei in das rules-Verzeichnis des File-Providers legen.
+
+http:
+  middlewares:
+    rewrite-authorize-formularemcp:
+      replacePath:
+        path: "/api/oidc/authorization"
+  routers:
+    formulare-mcp-authorize:
+      rule: "Host(`mcp.example.com`) && PathPrefix(`/authorize`)"
+      entrypoints: [websecure]
+      service: authelia-oidc-formulare
+      middlewares: [rewrite-authorize-formularemcp]
+      tls:
+        certResolver: mydnschallenge
+    formulare-mcp-root:
+      rule: "Host(`mcp.example.com`) && Path(`/`)"
+      entrypoints: [websecure]
+      service: authelia-oidc-formulare
+      tls:
+        certResolver: mydnschallenge
+    formulare-mcp-oidc:
+      rule: "Host(`mcp.example.com`) && (PathPrefix(`/api`) || PathPrefix(`/consent`) || PathPrefix(`/static`) || PathPrefix(`/.well-known`))"
+      entrypoints: [websecure]
+      service: authelia-oidc-formulare
+      tls:
+        certResolver: mydnschallenge
+  services:
+    authelia-oidc-formulare:
+      loadBalancer:
+        servers:
+          - url: "http://authelia:9091"

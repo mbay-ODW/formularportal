@@ -1,0 +1,47 @@
+# Formularportal – lokal bauen und starten (ohne Traefik/Authelia).
+#   cp .env.example .env && docker compose up -d --build   → http://localhost:8090
+# Produktion: deploy/docker-compose.prod.yml
+services:
+  backend:
+    build: ./backend
+    image: formularportal-backend:latest
+    restart: unless-stopped
+    environment:
+      FP_DATA_DIR: /data
+      FP_PUBLIC_BASE_URL: ${FP_PUBLIC_BASE_URL:-http://localhost:8090}
+      FP_ADMIN_GUARD: "off"
+      FP_INTERNAL_API_KEY: ${FP_INTERNAL_API_KEY:-}
+      FP_HERO_TOKEN: ${FP_HERO_TOKEN:-}
+      FP_SMTP_HOST: ${FP_SMTP_HOST:-}
+      FP_SMTP_PORT: ${FP_SMTP_PORT:-587}
+      FP_SMTP_USER: ${FP_SMTP_USER:-}
+      FP_SMTP_PASSWORD: ${FP_SMTP_PASSWORD:-}
+      FP_SMTP_FROM: ${FP_SMTP_FROM:-}
+    volumes:
+      - formularportal_data:/data
+
+  frontend:
+    build: ./frontend
+    image: formularportal-frontend:latest
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${FP_PORT:-8090}:80"
+
+  mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile.mcp
+    image: formularportal-mcp:latest
+    restart: unless-stopped
+    environment:
+      FP_API_URL: http://backend:8000
+      FP_INTERNAL_API_KEY: ${FP_INTERNAL_API_KEY:-}
+      MCP_API_KEY: ${MCP_API_KEY:-}
+    ports:
+      - "${FP_MCP_PORT:-8091}:3000"
+
+volumes:
+  formularportal_data:

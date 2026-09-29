@@ -1,0 +1,10 @@
+.env
+node_modules/
+dist/
+__pycache__/
+*.pyc
+.venv/
+data/
+*.sqlite3*
+.pytest_cache/
+*.tsbuildinfo
