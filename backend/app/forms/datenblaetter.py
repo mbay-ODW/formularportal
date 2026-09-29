@@ -178,7 +178,12 @@ DATENBLATT_B = {
         sec("Notizen und Empfehlungen",
             area("b_notizen", "Notizen zur Begehung"),
             area("b_sofortmassnahmen", "Geringinvestive Sofortmaßnahmen"),
-            area("b_empfehlungen", "Erste Maßnahmenideen / Varianten")),
+            area("b_empfehlungen", "Erste Maßnahmenideen / Varianten"),
+            table("b_pakete", "Erste Maßnahmenpakete (Grobplanung)", [
+                col("paket", "Paket"), col("massnahmen", "Maßnahmen"),
+                col("prioritaet", "Priorität", "select", ["hoch", "mittel", "niedrig"]),
+                col("zeitraum", "Zeitraum"), col("kosten", "Kosten grob", "number", unit="€")],
+                min_rows=3)),
         sec("Bestätigung", *ort_datum(), sign("unterschrift", "Unterschrift Energieberater/in")),
     ],
 }
@@ -229,10 +234,25 @@ DATENBLATT_C = {
                 col("jahr", "Jahr"), col("traeger", "Energieträger", "select", ENERGIETRAEGER),
                 col("menge", "Menge", "number"), col("einheit", "Einheit"),
                 col("kosten", "Kosten", "number", unit="€")], min_rows=3),
+            checks("c_gemeinschaft", "Gemeinschaftsanlagen", [
+                "zentrale Heizungsanlage", "zentrale Warmwasserbereitung", "Aufzug",
+                "Lüftungsanlage", "Photovoltaik / Mieterstrom", "Tiefgarage / Stellplätze mit "
+                "Lademöglichkeit", "Gemeinschaftsräume beheizt", "Waschküche / Trockenraum"]),
             info("c_hinweis",
                  "Die Förderhöchstgrenzen in der BEG richten sich nach der Zahl der "
                  "Wohneinheiten des Gebäudes – vollständige Angaben sichern die maximale "
                  "Förderung.")),
+        sec("Sanierungsplanung auf Objektebene",
+            num("c_ruecklage", "Erhaltungsrücklage (aktueller Stand)", unit="€", width="half"),
+            select("c_beschlusslage", "Beschlusslage zur Sanierung", [
+                "noch nicht besprochen", "in Diskussion", "Grundsatzbeschluss liegt vor",
+                "Maßnahmen beschlossen"], width="half"),
+            table("c_geplant", "Geplante oder notwendige Maßnahmen", [
+                col("massnahme", "Maßnahme"), col("anlass", "Anlass (Schaden, Pflicht, Wunsch)"),
+                col("zeitraum", "Zeitraum"), col("budget", "Budget", "number", unit="€")],
+                min_rows=3),
+            area("c_hemmnisse", "Besonderheiten (z. B. vermietete Einheiten, Finanzierung, "
+                 "Denkmalschutz, Uneinigkeit in der Gemeinschaft)")),
         sec("Abschluss", *ort_datum(), sign("unterschrift", "Unterschrift Eigentümer/in bzw. "
                                            "Verwaltung")),
     ],

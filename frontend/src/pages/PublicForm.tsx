@@ -112,6 +112,11 @@ export default function PublicForm({ token }: { token: string }) {
           {(pf.kunde || pf.objekt) && (
             <p className="meta">{[pf.kunde, pf.objekt].filter(Boolean).join(" · ")}</p>
           )}
+          {!pf.locked && (
+            <p className="small">Lieber offline? <a href={`/api/public/f/${token}/pdf?ausfuellbar=true`}
+              onClick={() => auto.flush()}>Beschreibbares PDF herunterladen</a>, ausfüllen und
+              an {pf.branding.email || "uns"} zurücksenden.</p>
+          )}
           {!pf.locked && progress.total > 0 && (
             <div className="progress" title="Pflichtangaben">
               <div style={{ width: `${(progress.done / progress.total) * 100}%` }} />

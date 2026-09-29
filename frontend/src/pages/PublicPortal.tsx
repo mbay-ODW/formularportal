@@ -51,6 +51,18 @@ export default function PublicPortal({ token }: { token: string }) {
         </div>
         <p className="footnote">Ihre Eingaben werden automatisch gespeichert. Sie können jederzeit
           unterbrechen und später über diesen Link weitermachen.</p>
+        <div className="card">
+          <h3>Lieber auf Papier oder am PC?</h3>
+          <p className="muted small">Jedes Formular gibt es auch als beschreibbares PDF – am
+            Computer ausfüllen oder ausdrucken und an {p.branding.email || "uns"} zurücksenden.</p>
+          <ul className="pdf-list">
+            {p.formulare.filter((f) => f.status === "entwurf" || f.status === "in_bearbeitung")
+              .map((f) => (
+                <li key={f.token}><a href={`/api/public/f/${f.token}/pdf?ausfuellbar=true`}>
+                  {f.nr}. {f.title} (PDF)</a></li>
+              ))}
+          </ul>
+        </div>
       </main>
     </div>
   );

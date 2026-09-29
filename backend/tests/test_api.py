@@ -35,11 +35,12 @@ def _pdf_text(data: bytes) -> str:
     return "\n".join(p.extract_text() or "" for p in PdfReader(io.BytesIO(data)).pages)
 
 
-def test_katalog_hat_12_formulare(client):
+def test_katalog_vollstaendig(client):
     r = client.get("/api/forms")
     assert r.status_code == 200
-    assert len(r.json()["formulare"]) == 12
-    assert [f["nr"] for f in r.json()["formulare"]] == list(range(1, 13))
+    assert [f["nr"] for f in r.json()["formulare"]] == list(range(1, 21))
+    for paket, keys in r.json()["pakete"].items():
+        assert all(k in forms.REGISTRY for k in keys), paket
 
 
 def test_admin_schutz(client):
@@ -64,7 +65,7 @@ def test_ablauf_kunde_fuellt_aus_und_reicht_ein(client):
         "stammdaten": {"eig_vorname": "Erika", "eig_nachname": "Muster"},
         "paket": "iSFP / Energieberatung"}).json()
     assert v["kunde"] == "Erika Muster"
-    assert len(v["formulare"]) == 5
+    assert len(v["formulare"]) == len(forms.PAKETE["iSFP / Energieberatung"])
     b = next(f for f in v["formulare"] if f["form_key"] == "datenblatt_b")
     assert b["freigegeben"] is False  # Berater-Formular nicht im Kundenportal
 
@@ -161,3 +162,25 @@ def test_defekte_unterschrift_bricht_pdf_nicht():
     data = pdf.render(forms.get("stammdaten_gebaeude"),
                       {"unterschrift": "data:image/png;base64,AAAA"})
     assert data.startswith(b"%PDF")
+
+
+def test_beschreibbares_pdf(client):
+    r = client.get("/api/forms/checkliste_beg_em/pdf")
+    fields = PdfReader(io.BytesIO(r.content)).get_fields()
+    assert fields and "eig_nachname" in fields and "em_huelle__0" in fields
+    v = client.post("/api/vorgaenge", json={"formulare": ["stammdaten_gebaeude"],
+                                           "stammdaten": {"obj_ort": "Erbach"}}).json()
+    fid = v["formulare"][0]["id"]
+    r = client.get(f"/api/formulare/{fid}/pdf?ausfuellbar=true")
+    fields = PdfReader(io.BytesIO(r.content)).get_fields()
+    assert fields["obj_ort"].get("/V") == "Erbach"
+
+
+def test_platzhalter_aus_firmenkopf(client):
+    client.put("/api/einstellungen", json={"firma": "Testfirma GmbH", "strasse": "Weg 1",
+                                           "plz_ort": "12345 Ort", "email": "a@b.de"})
+    f = client.get("/api/forms/beratungsvertrag").json()
+    texte = " ".join(x.get("text", "") for s_ in f["sections"] for x in s_["fields"])
+    assert "Testfirma GmbH, Weg 1, 12345 Ort" in texte and "{{" not in texte
+    text = _pdf_text(client.get("/api/forms/beratungsvertrag/pdf?ausfuellbar=false").content)
+    assert "Testfirma GmbH" in text

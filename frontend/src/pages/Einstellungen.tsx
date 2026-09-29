@@ -55,6 +55,14 @@ export default function Einstellungen() {
               <textarea rows={3} value={String(s.portal_begruessung ?? "")}
                 onChange={(e) => set("portal_begruessung", e.target.value)} />
             </div>
+            <div className="field w-full">
+              <label className="confirm">
+                <input type="checkbox" checked={s.kopie_an_kunde === "ja"}
+                  onChange={(e) => set("kopie_an_kunde", e.target.checked ? "ja" : "nein")} />
+                <span>Nach dem Absenden eine Kopie (PDF) an den Kunden bzw. das
+                  Fachunternehmen senden</span>
+              </label>
+            </div>
             {FARBEN.map(([k, l]) => (
               <div key={k} className="field w-third">
                 <label className="flabel">{l}</label>

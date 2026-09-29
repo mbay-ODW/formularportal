@@ -159,10 +159,11 @@ async def public_submit(token: str, request: Request, bg: BackgroundTasks):
 
 
 @public.get("/f/{token}/pdf")
-def public_pdf(token: str):
+def public_pdf(token: str, ausfuellbar: bool = False):
     f, _ = _public_formular(token)
-    data, name = services.render_pdf(f["id"])
-    return _pdf_response(data, name)
+    data, name = services.render_pdf(f["id"], fillable=ausfuellbar and f["status"]
+                                     not in services.LOCKED)
+    return _pdf_response(data, name, inline=not ausfuellbar)
 
 
 app.include_router(public)
@@ -235,18 +236,21 @@ def form_catalog():
 
 @admin.get("/forms/{key}")
 def form_def(key: str):
-    f = forms.get(key)
+    f = forms.get(key, branding.load())
     if not f:
         raise HTTPException(404, "Unbekanntes Formular")
     return f
 
 
 @admin.get("/forms/{key}/pdf")
-def form_blank_pdf(key: str):
-    f = forms.get(key)
+def form_blank_pdf(key: str, ausfuellbar: bool = True):
+    """Leere Vorlage – standardmäßig als beschreibbares PDF (AcroForm)."""
+    settings = branding.load()
+    f = forms.get(key, settings)
     if not f:
         raise HTTPException(404, "Unbekanntes Formular")
-    return _pdf_response(pdf.render(f, blank=True), pdf.filename(f, "Vorlage"))
+    return _pdf_response(pdf.render(f, blank=True, fillable=ausfuellbar, settings=settings),
+                         pdf.filename(f, "Vorlage"))
 
 
 # ---- Vorgänge ------------------------------------------------------------------------
@@ -385,9 +389,10 @@ def formular_link_senden(fid: int, body: LinkMail, akteur: str = Depends(admin_g
 
 
 @admin.get("/formulare/{fid}/pdf")
-def formular_pdf(fid: int, download: bool = False):
-    data, name = services.render_pdf(fid)
-    return _pdf_response(data, name, inline=not download)
+def formular_pdf(fid: int, download: bool = False, ausfuellbar: bool = False):
+    """ausfuellbar=true: beschreibbares PDF, mit den bisherigen Angaben vorbefüllt."""
+    data, name = services.render_pdf(fid, fillable=ausfuellbar)
+    return _pdf_response(data, name, inline=not (download or ausfuellbar))
 
 
 @admin.post("/formulare/{fid}/hero-upload")

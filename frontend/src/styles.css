@@ -145,7 +145,7 @@ button:disabled { opacity: .5; cursor: default; }
 }
 .field.missing .flabel { color: var(--bad); }
 .finfo { background: var(--soft); border-left: 4px solid var(--primary); padding: 10px 14px;
-  border-radius: 6px; font-size: 13.5px; }
+  border-radius: 6px; font-size: 13.5px; white-space: pre-line; }
 .with-unit { display: flex; align-items: center; gap: 6px; }
 .with-unit .unit { color: var(--muted); font-size: 13px; white-space: nowrap; }
 
@@ -280,3 +280,17 @@ ul.status-list li { padding: 4px 0; }
   header.app, .submit-bar, .back, .head-actions { display: none !important; }
   .card { border: none; }
 }
+
+/* --- Sprungmarken --- */
+.jump { position: sticky; top: 0; z-index: 4; display: flex; gap: 6px; overflow-x: auto;
+  padding: 8px 0 10px; margin: -4px 0 8px; background: var(--card);
+  border-bottom: 1px solid var(--line); scrollbar-width: thin; }
+.jump button { flex: none; background: #fff; border: 1px solid var(--line); border-radius: 20px;
+  padding: 5px 11px; font-size: 12.5px; color: var(--ink); white-space: nowrap; }
+.jump button.done { border-color: var(--accent); color: var(--ok); }
+.jump button.todo { border-color: #f0c36d; }
+.jump .cnt { display: inline-block; margin-left: 6px; background: #fff3dc; color: var(--warn);
+  border-radius: 10px; padding: 0 6px; font-size: 11px; font-weight: 700; }
+.fsection { scroll-margin-top: 60px; }
+.vorgang-head.sticky + * .jump, .admin .jump { top: 64px; }
+ul.pdf-list { margin: 6px 0 0; padding-left: 18px; font-size: 14px; }

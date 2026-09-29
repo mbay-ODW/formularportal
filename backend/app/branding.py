@@ -25,6 +25,7 @@ DEFAULTS: dict[str, Any] = {
     "farbe_akzent": "#3fa535",
     "farbe_text": "#0e2a40",
     "benachrichtigung_email": "",
+    "kopie_an_kunde": "ja",
     "portal_begruessung": "Vielen Dank für Ihr Vertrauen. Bitte füllen Sie die folgenden "
                           "Formulare aus – Ihre Eingaben werden automatisch gespeichert.",
     "fusszeile": "",

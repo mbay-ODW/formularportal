@@ -26,7 +26,9 @@ export default function Katalog({ formKey }: { formKey?: string }) {
               <div><h2>{def.title}</h2><p className="muted">{def.description}</p></div>
               <div className="head-actions">
                 <a className="button ghost small" href={`/api/forms/${def.key}/pdf`}
-                  target="_blank" rel="noreferrer">Druckvorlage (PDF)</a>
+                  target="_blank" rel="noreferrer">PDF beschreibbar</a>
+                <a className="button ghost small" href={`/api/forms/${def.key}/pdf?ausfuellbar=false`}
+                  target="_blank" rel="noreferrer">Druckvorlage</a>
               </div>
             </div>
             <p className="muted">Vorschau – Eingaben hier werden nicht gespeichert.</p>
@@ -43,7 +45,7 @@ export default function Katalog({ formKey }: { formKey?: string }) {
   const groups = [...new Set(items.map((i) => i.category))];
   return (
     <>
-      <p className="muted">Zwölf Formulare für den gesamten Beratungs- und Förderprozess –
+      <p className="muted">Formulare für den gesamten Beratungs- und Förderprozess –
         online ausfüllbar und als gebrandete Druckvorlage.</p>
       {groups.map((g) => (
         <div key={g} className="card">
@@ -59,7 +61,9 @@ export default function Katalog({ formKey }: { formKey?: string }) {
                     <span className="pill">{i.audience_label}</span>{" "}
                     <span className="muted">{i.anzahl_felder} Felder · Stand {i.version}</span>
                     {" · "}<a href={`/api/forms/${i.key}/pdf`} target="_blank"
-                      rel="noreferrer">PDF-Vorlage</a>
+                      rel="noreferrer">PDF beschreibbar</a>{" · "}
+                    <a href={`/api/forms/${i.key}/pdf?ausfuellbar=false`} target="_blank"
+                      rel="noreferrer">Druckvorlage</a>
                   </p>
                 </div>
               </div>

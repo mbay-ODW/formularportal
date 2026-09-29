@@ -21,8 +21,8 @@ from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas as rl_canvas
-from reportlab.platypus import (Image, KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table,
-                                TableStyle)
+from reportlab.platypus import (Flowable, Image, KeepTogether, Paragraph, SimpleDocTemplate,
+                                Spacer, Table, TableStyle)
 
 from app import branding
 from app.forms._dsl import INPUT_TYPES, cond_ok
@@ -118,10 +118,51 @@ def _signature(v: Any, blank: bool) -> Any:
     return Spacer(1, 18 * mm)
 
 
+class AcroText(Flowable):
+    """Beschreibbares Textfeld (AcroForm) an der aktuellen Position."""
+
+    def __init__(self, name: str, width: float, height: float, value: Any = "",
+                 multiline: bool = False):
+        super().__init__()
+        self.name, self.width, self.height = name, width, height
+        self.value = "" if value in (None, []) else str(value)
+        self.multiline = multiline
+
+    def wrap(self, aw, ah):
+        self.width = min(self.width, aw)
+        return self.width, self.height
+
+    def draw(self):
+        self.canv.acroForm.textfield(
+            name=self.name, value=self.value, x=0, y=0, width=self.width, height=self.height,
+            fontName="Helvetica", fontSize=0 if self.multiline else 9, borderWidth=0.5,
+            borderColor=colors.HexColor("#9fb3b8"), fillColor=colors.HexColor("#f7fafb"),
+            textColor=colors.HexColor("#0e2a40"), forceBorder=True, relative=True,
+            fieldFlags="multiline" if self.multiline else "")
+
+
+class AcroCheck(Flowable):
+    """Beschreibbares Ankreuzfeld (AcroForm)."""
+
+    def __init__(self, name: str, checked: bool = False, size: float = 3.6 * mm):
+        super().__init__()
+        self.name, self.checked, self.size = name, checked, size
+
+    def wrap(self, aw, ah):
+        return self.size, self.size
+
+    def draw(self):
+        self.canv.acroForm.checkbox(
+            name=self.name, checked=self.checked, x=0, y=0, size=self.size, buttonStyle="cross",
+            borderWidth=0.5, borderColor=colors.HexColor("#6b7a7e"), fillColor=colors.white,
+            textColor=colors.HexColor("#0e2a40"), forceBorder=True, relative=True)
+
+
 class _Doc:
     def __init__(self, form: dict[str, Any], data: dict[str, Any], blank: bool,
-                 settings: dict[str, Any], meta: dict[str, Any]):
+                 settings: dict[str, Any], meta: dict[str, Any], fillable: bool = False):
         self.form, self.data, self.blank = form, data, blank
+        self.fillable = fillable
         self.s = settings
         self.st = _styles(settings)
         self.meta = meta
@@ -172,9 +213,67 @@ class _Doc:
 
     # -- Inhalt --
     def visible(self, cond) -> bool:
-        return self.blank or cond_ok(cond, self.data)
+        return self.blank or self.fillable or cond_ok(cond, self.data)
+
+    # -- beschreibbare Variante --
+    def _opts(self, key: str, options: list[str], chosen: Any, multi: bool, width: float,
+              inline: bool = False) -> Table:
+        sel = set(chosen or []) if multi else {chosen}
+        st = self.st["check"]
+        cells = [[AcroCheck(f"{key}__{i}", o in sel), Paragraph(escape(o), st)]
+                 for i, o in enumerate(options)]
+        if inline:
+            row = [c for pair in cells for c in pair]
+            widths = [6 * mm, 20 * mm] * len(cells)
+            tbl = Table([row], colWidths=widths, hAlign="LEFT")
+        else:
+            per = 2 if len(options) > 4 and width > 0.6 else 1
+            rows = []
+            for i in range(0, len(cells), per):
+                chunk = cells[i:i + per]
+                row = [c for pair in chunk for c in pair]
+                row += ["", ""] * (per - len(chunk))
+                rows.append(row)
+            cw = CONTENT_W * width / per
+            tbl = Table(rows, colWidths=[6 * mm, cw - 6 * mm] * per, hAlign="LEFT")
+        tbl.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"),
+                                 ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                                 ("TOPPADDING", (0, 0), (-1, -1), 1),
+                                 ("BOTTOMPADDING", (0, 0), (-1, -1), 1)]))
+        return tbl
+
+    def fillable_cell(self, f: dict[str, Any], width: float) -> list[Any]:
+        t, st = f["type"], self.st
+        v = None if self.blank else self.data.get(f["key"])
+        label = f["label"] + (" *" if f.get("required") else "")
+        w = CONTENT_W * width - 6
+        if t in ("select", "radio"):
+            return [_p(label, st["label"]), self._opts(f["key"], f["options"], v, False, width)]
+        if t == "checks":
+            return [_p(label, st["label"]), self._opts(f["key"], f["options"], v, True, width)]
+        if t == "yesno":
+            return [_p(label, st["label"]),
+                    self._opts(f["key"], ["ja", "nein"], v, False, width, inline=True)]
+        if t == "check":
+            tbl = Table([[AcroCheck(f["key"], v is True), Paragraph(escape(f["label"]),
+                                                                  st["check"])]],
+                        colWidths=[6 * mm, w - 6 * mm], hAlign="LEFT")
+            tbl.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"),
+                                     ("LEFTPADDING", (0, 0), (-1, -1), 0)]))
+            return [tbl]
+        if t == "signature":
+            return [_signature(v, self.blank), _p(label, st["label"])]
+        txt = _value_text(f, v) if v not in (None, "") else ""
+        if t == "number" and v not in (None, ""):
+            txt = _fmt_num(v)
+        if t == "textarea":
+            return [_p(label, st["label"]), AcroText(f["key"], w, 16 * mm, txt, multiline=True)]
+        unit = f" [{f['unit']}]" if t == "number" and f.get("unit") else ""
+        return [_p(label + unit, st["label"]), AcroText(f["key"], w, 6 * mm, txt)]
 
     def field_cell(self, f: dict[str, Any], width: float) -> list[Any]:
+        if self.fillable:
+            return self.fillable_cell(f, width)
         t, st = f["type"], self.st
         v = self.data.get(f["key"])
         label = f["label"] + (" *" if f.get("required") and self.blank else "")
@@ -219,10 +318,21 @@ class _Doc:
                          for c in cols])
         n_empty = max(f.get("min_rows", 1) + (2 if self.blank else 0) - len(data_rows),
                       0 if data_rows else 1)
+        if self.fillable:
+            rows = [header]
+            existing = [] if self.blank else list(self.data.get(f["key"]) or [])
+            n = max(f.get("min_rows", 1) + 2, len(existing) + 1)
+            cw = CONTENT_W / len(cols)
+            for r in range(n):
+                vals = existing[r] if r < len(existing) else {}
+                rows.append([AcroText(f"{f['key']}_{r}_{c['key']}", cw - 4, 5.5 * mm,
+                                      (vals or {}).get(c["key"], "")) for c in cols])
+            data_rows = rows[1:]
+            n_empty = 0
         for _ in range(n_empty):
             rows.append(["" for _ in cols])
         tbl = Table(rows, colWidths=[CONTENT_W / len(cols)] * len(cols), repeatRows=1,
-                    rowHeights=[None] + [None if i < len(data_rows) else 7 * mm
+                    rowHeights=[None] + [None if (i < len(data_rows) or self.fillable) else 7 * mm
                                          for i in range(len(rows) - 1)])
         tbl.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), self.prim),
@@ -296,7 +406,11 @@ class _Doc:
                                 title=self.form["title"], author=self.s.get("firma", ""))
         st = self.st
         story: list[Any] = [_p(self.form["title"], st["title"])]
-        if self.blank:
+        if self.fillable:
+            story.append(_p("Beschreibbares PDF – am Computer ausfüllen, speichern und "
+                            "per E-Mail zurücksenden, oder ausdrucken. * = Pflichtangabe",
+                            st["meta"]))
+        elif self.blank:
             story.append(_p("Druckvorlage – bitte in Druckbuchstaben ausfüllen. "
                             "* = Pflichtangabe", st["meta"]))
         else:
@@ -318,8 +432,11 @@ class _Doc:
 
 
 def render(form: dict[str, Any], data: dict[str, Any] | None = None, *, blank: bool = False,
-           meta: dict[str, Any] | None = None, settings: dict[str, Any] | None = None) -> bytes:
-    return _Doc(form, data or {}, blank, settings or branding.load(), meta or {}).build()
+           fillable: bool = False, meta: dict[str, Any] | None = None,
+           settings: dict[str, Any] | None = None) -> bytes:
+    """blank=leere Vorlage, fillable=mit AcroForm-Feldern (auch vorbefüllt mit ``data``)."""
+    return _Doc(form, data or {}, blank, settings or branding.load(), meta or {},
+                fillable).build()
 
 
 def filename(form: dict[str, Any], kunde: str = "") -> str:

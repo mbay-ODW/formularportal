@@ -63,6 +63,9 @@ export default function FormularAdmin({ id }: { id: number }) {
             setMsg("Formular-Link kopiert"))}>Link kopieren</button>
           <a className="button ghost small" href={`/api/formulare/${id}/pdf`} target="_blank"
             rel="noreferrer" onClick={() => auto.flush()}>PDF</a>
+          <a className="button ghost small" href={`/api/formulare/${id}/pdf?ausfuellbar=true`}
+            onClick={() => auto.flush()} title="Mit den bisherigen Angaben vorbefüllt">
+            PDF beschreibbar</a>
           {me?.hero && fv.vorgang.hero_project_id && (
             <button className="ghost small" onClick={() => act(() => api.formularHeroUpload(id),
               "PDF in HERO abgelegt")}>→ HERO</button>

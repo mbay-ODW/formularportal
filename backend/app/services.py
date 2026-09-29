@@ -68,7 +68,7 @@ def vorgang_view(v: dict[str, Any]) -> dict[str, Any]:
 
 
 def formular_view(f: dict[str, Any], v: dict[str, Any]) -> dict[str, Any]:
-    form = forms.get(f["form_key"])
+    form = forms.get(f["form_key"], branding.load())
     if not form:
         raise NotFound(f"Formular-Definition {f['form_key']} unbekannt")
     merged = forms.merged_data(form, f["data"], v["stammdaten"])
@@ -198,12 +198,18 @@ def submit(fid: int, data: dict[str, Any] | None, akteur: str) -> dict[str, Any]
     return formular_view(f, v)
 
 
-def render_pdf(fid: int, blank: bool = False) -> tuple[bytes, str]:
-    f, v, form = load(fid)
+def render_pdf(fid: int, blank: bool = False, fillable: bool = False) -> tuple[bytes, str]:
+    f, v, _ = load(fid)
+    settings = branding.load()
+    form = forms.get(f["form_key"], settings)
     merged = forms.merged_data(form, f["data"], v["stammdaten"])
     meta = {"kunde": kunde_label(v), "objekt": objekt_label(v),
             "submitted_at": f.get("submitted_at")}
-    return pdf.render(form, merged, blank=blank, meta=meta), pdf.filename(form, kunde_label(v))
+    name = pdf.filename(form, kunde_label(v))
+    if fillable:
+        name = name.replace(".pdf", "_ausfuellbar.pdf")
+    return (pdf.render(form, merged, blank=blank, fillable=fillable, meta=meta,
+                       settings=settings), name)
 
 
 def set_status(fid: int, status: str, akteur: str) -> dict[str, Any]:
@@ -259,6 +265,23 @@ async def after_submit(fid: int) -> None:
             db.log(v["id"], fid, "system", "mail_berater", to)
         except Exception as e:  # noqa: BLE001
             log.exception("Mail fehlgeschlagen")
+            db.log(v["id"], fid, "system", "mail_fehler", str(e))
+    kunde_mail = (v["stammdaten"].get("fu_email") if form["audience"] == "fachunternehmen"
+                  else v["stammdaten"].get("eig_email") or v.get("kunde_email"))
+    if kunde_mail and s.get("kopie_an_kunde") == "ja" and notify.smtp_configured():
+        try:
+            data, name = render_pdf(fid)
+            notify.send_mail(
+                kunde_mail, f"Ihre Angaben: {form['title']}",
+                f"Guten Tag,\n\nvielen Dank – wir haben Ihr Formular „{form['title']}“ "
+                "erhalten. Eine Kopie Ihrer Angaben finden Sie im Anhang.\n\n"
+                f"Viele Grüße\n{s.get('inhaber') or ''}\n{s.get('firma') or ''}\n"
+                f"{s.get('telefon') or ''}",
+                reply_to=s.get("email") or "", from_name=s.get("firma", ""),
+                attachments=[(name, data, "application/pdf")])
+            db.log(v["id"], fid, "system", "kopie_an_kunde", kunde_mail)
+        except Exception as e:  # noqa: BLE001
+            log.exception("Kopie an Kunden fehlgeschlagen")
             db.log(v["id"], fid, "system", "mail_fehler", str(e))
     notify.push(f"Formular eingereicht: {kunde}", form["title"], click=admin_link)
     if config.HERO_AUTO_UPLOAD and v.get("hero_project_id") and hero.configured():

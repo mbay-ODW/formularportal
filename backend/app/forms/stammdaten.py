@@ -52,6 +52,18 @@ STAMMDATEN_EIGENTUEMER = {
                   hint="Dann ist in der Regel eine De-minimis-Erklärung erforderlich."),
             yesno("eig_vorsteuer", "Sind Sie zum Vorsteuerabzug berechtigt?",
                   hint="Wenn ja, sind nur die Nettokosten förderfähig.")),
+        sec("Steuerangaben",
+            text("eig_steuer_id", "Steuerliche Identifikationsnummer", width="half",
+                 hint="Für Nachweise zu einkommensabhängigen Zuschüssen und für die "
+                      "Steuerermäßigung nach § 35c EStG."),
+            text("eig_finanzamt", "Zuständiges Finanzamt", width="half"),
+            text("eig_steuernummer", "Steuernummer (Unternehmen)", width="half",
+                 show_if=when("eig_unternehmen", equals="ja")),
+            text("eig_ust_id", "USt-IdNr.", width="half",
+                 show_if=when("eig_unternehmen", equals="ja")),
+            radio("eig_unternehmensgroesse", "Unternehmensgröße", [
+                "Kleinstunternehmen", "kleines Unternehmen", "mittleres Unternehmen",
+                "großes Unternehmen"], show_if=when("eig_unternehmen", equals="ja"))),
         sec("Einkommen und Haushalt (optional)",
             info("eig_einkommen_info",
                  "Bei der Heizungsförderung hängen Zuschläge vom zu versteuernden "

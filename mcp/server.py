@@ -29,8 +29,10 @@ OIDC_CLIENT_SECRET = os.environ.get("OIDC_CLIENT_SECRET", "")
 PROTOCOL_VERSION = "2024-11-05"
 SERVER_INFO = {"name": "formularportal-mcp", "version": "1.0.0"}
 INSTRUCTIONS = (
-    "Formularportal der Energieberatung: 12 Formulare (Stammdaten, Datenblätter A/B/C, "
-    "Checklisten EBW/BEG EM/Heizung, Fachunternehmererklärungen, Verträge). Typischer "
+    "Formularportal der Energieberatung: 20 Formulare (Beratungsauftrag, Datenschutz, "
+    "Vollmacht, Stammdaten, Datenblätter A/B/C, Checklisten EBW/BEG EM/Heizung, "
+    "Fachunternehmererklärungen, Verträge, Eigenleistung, Baubegleitung, Lüftung, iSFP-Abschluss, "
+    "Energieausweis). Typischer "
     "Ablauf: formulare_katalog → vorgang_anlegen (optional mit hero_project_id, dann sind "
     "Kundendaten vorbefüllt) → formular_schema lesen → formular_ausfuellen mit den "
     "Feldschlüsseln → formular_lesen zeigt fehlende Pflichtfelder → formular_einreichen "
@@ -207,7 +209,8 @@ async def h_status(a):
 
 
 async def h_pdf(a):
-    r = await _req("GET", f"/api/formulare/{int(a['id'])}/pdf", raw=True)
+    params = {"ausfuellbar": "true"} if a.get("beschreibbar") else None
+    r = await _req("GET", f"/api/formulare/{int(a['id'])}/pdf", params=params, raw=True)
     name = "formular.pdf"
     cd = r.headers.get("content-disposition", "")
     if 'filename="' in cd:
@@ -264,7 +267,7 @@ async def h_ereignisse(a):
 _OBJ = {"type": "object"}
 TOOLS: list[dict[str, Any]] = [
     {"name": "formulare_katalog", "description":
-        "Listet die 12 Formulare (key, Titel, Zielgruppe Kunde/Berater/Fachunternehmen) und die "
+        "Listet alle Formulare (key, Titel, Zielgruppe Kunde/Berater/Fachunternehmen) und die "
         "vordefinierten Pakete (z. B. 'iSFP / Energieberatung', 'Heizungstausch').",
      "inputSchema": {"type": "object", "properties": {}}},
     {"name": "formular_schema", "description":
@@ -334,8 +337,10 @@ TOOLS: list[dict[str, Any]] = [
                                                "geprueft"]}}, "required": ["id", "status"]}},
     {"name": "formular_pdf", "description":
         "Erzeugt das gebrandete PDF eines Formulars und gibt es als eingebettete Ressource "
-        "(base64) zurück.",
-     "inputSchema": {"type": "object", "properties": {"id": {"type": "integer"}},
+        "(base64) zurück. beschreibbar=true liefert ein PDF mit Formularfeldern, vorbefüllt mit "
+        "den bisherigen Angaben (zum Mailversand an Kunden).",
+     "inputSchema": {"type": "object", "properties": {"id": {"type": "integer"},
+                                                      "beschreibbar": {"type": "boolean"}},
                      "required": ["id"]}},
     {"name": "kundenlink", "description":
         "Portal-Link des Vorgangs (alle freigegebenen Formulare) und Einzellinks je Formular "
