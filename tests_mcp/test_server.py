@@ -13,7 +13,7 @@ import httpx
 import pytest
 from starlette.testclient import TestClient
 
-srv = importlib.import_module("mcp.server")
+srv = importlib.import_module("mcp_server.server")
 
 KEY = "testkey"
 INTROSPECT = "http://authelia.test/api/oidc/introspection"
@@ -255,7 +255,20 @@ def test_unerwarteter_fehler_ist_rpc_fehler(client, api, monkeypatch):
     assert body["error"] == {"code": -32603, "message": "Tool-Fehler: keine Verbindung"}
 
 
-# ---- JSON-RPC-Batch ---------------------------------------------------------
-def test_batch(client):
+# ---- Vom SDK vorgegeben ------------------------------------------------------
+def test_batch_wird_abgewiesen(client):
+    """Bis zum SDK-Umbau beantwortet, seit Protokoll 2025-06-18 nicht mehr Teil von MCP."""
     r = client.post("/mcp", headers=AUTH, json=[rpc("ping", rid=1), rpc("tools/list", rid=2)])
-    assert [m["id"] for m in r.json()] == [1, 2]
+    assert r.status_code == 400
+    assert r.json()["error"]["code"] == -32602
+
+
+def test_accept_platzhalter_reicht(client):
+    r = client.post("/mcp", headers={"Authorization": f"Bearer {KEY}", "Accept": "*/*"}, json=LIST)
+    assert r.status_code == 200
+
+
+def test_ohne_accept_406(client):
+    """Bis zum SDK-Umbau egal; das SDK verlangt application/json oder einen Platzhalter."""
+    r = client.post("/mcp", headers={"Authorization": f"Bearer {KEY}", "Accept": ""}, json=LIST)
+    assert r.status_code == 406
