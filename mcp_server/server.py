@@ -1,6 +1,6 @@
 """MCP-Server für das Formularportal.
 
-Model Context Protocol über Streamable HTTP (ohne externe MCP-SDK), damit Agenten
+Model Context Protocol über Streamable HTTP (offizielles SDK, zustandslos), damit Agenten
 Vorgänge anlegen, Formulare aus HERO/Unterlagen vorbefüllen, prüfen, einreichen
 und als PDF ablegen können. Auth: statischer Bearer (MCP_API_KEY, Claude
 Desktop/Code) oder Authelia-OIDC-Token (claude.ai-Connector, Introspection).
@@ -10,14 +10,18 @@ authentifiziert sich dort mit dem internen API-Key.
 from __future__ import annotations
 
 import base64
+import contextlib
 import hmac
 import json
 import os
 from typing import Any
 
 import httpx
+import mcp.types as types
 from fastapi import FastAPI, HTTPException, Request, status
-from fastapi.responses import JSONResponse
+from mcp.server import Server, ServerRequestContext
+from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from mcp.shared.exceptions import MCPError
 
 API_URL = os.environ.get("FP_API_URL", "http://backend:8000").rstrip("/")
 INTERNAL_API_KEY = os.environ.get("FP_INTERNAL_API_KEY", "")
@@ -26,7 +30,6 @@ OIDC_INTROSPECTION_URL = os.environ.get("OIDC_INTROSPECTION_URL", "")
 OIDC_CLIENT_ID = os.environ.get("OIDC_CLIENT_ID", "")
 OIDC_CLIENT_SECRET = os.environ.get("OIDC_CLIENT_SECRET", "")
 
-PROTOCOL_VERSION = "2024-11-05"
 SERVER_INFO = {"name": "formularportal-mcp", "version": "1.0.0"}
 INSTRUCTIONS = (
     "Formularportal der Energieberatung: 20 Formulare (Beratungsauftrag, Datenschutz, "
@@ -41,9 +44,6 @@ INSTRUCTIONS = (
     "Mensch leisten – Formulare mit Pflicht-Unterschrift über den Kundenlink abschließen "
     "lassen. Nichts erfinden: fehlende Angaben leer lassen und im Ergebnis benennen."
 )
-
-app = FastAPI(title="Formularportal MCP", docs_url=None, redoc_url=None)
-
 
 # ---- Auth -------------------------------------------------------------------------
 async def _introspect(token: str) -> bool:
@@ -392,13 +392,47 @@ TOOL_HANDLERS = {
 }
 
 
-# ---- JSON-RPC / MCP ----------------------------------------------------------------
-def rpc_result(rid, result):
-    return {"jsonrpc": "2.0", "id": rid, "result": result}
+# ---- MCP-Protokoll (SDK) ----------------------------------------------------------
+_TOOL_MODELS = [types.Tool.model_validate(t) for t in TOOLS]
 
 
-def rpc_error(rid, code, msg):
-    return {"jsonrpc": "2.0", "id": rid, "error": {"code": code, "message": msg}}
+async def _on_list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> types.ListToolsResult:
+    return types.ListToolsResult(tools=_TOOL_MODELS)
+
+
+def _fehler_ergebnis(text: str) -> types.CallToolResult:
+    return types.CallToolResult(content=[types.TextContent(type="text", text=text)], is_error=True)
+
+
+async def _on_call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> types.CallToolResult:
+    name = params.name
+    if name not in TOOL_HANDLERS:
+        raise MCPError(-32601, f"Unbekanntes Tool: {name}")
+    try:
+        res = await TOOL_HANDLERS[name](params.arguments or {})
+    except ToolError as e:
+        return _fehler_ergebnis(str(e))
+    except (KeyError, ValueError, TypeError) as e:
+        return _fehler_ergebnis(f"Ungültige Argumente: {e}")
+    except Exception as e:  # noqa: BLE001
+        raise MCPError(-32603, f"Tool-Fehler: {e}") from e
+    if isinstance(res, dict):
+        return types.CallToolResult.model_validate(res)
+    return types.CallToolResult(content=[types.TextContent(type="text", text=res)])
+
+
+server = Server(SERVER_INFO["name"], version=SERVER_INFO["version"], instructions=INSTRUCTIONS,
+                on_list_tools=_on_list_tools, on_call_tool=_on_call_tool)
+session_manager = StreamableHTTPSessionManager(app=server, stateless=True, json_response=True)
+
+
+@contextlib.asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    async with session_manager.run():
+        yield
+
+
+app = FastAPI(title="Formularportal MCP", docs_url=None, redoc_url=None, lifespan=_lifespan)
 
 
 @app.get("/health")
@@ -412,50 +446,12 @@ def root():
             "auth": "Bearer token (Authorization-Header oder ?t=<token>)"}
 
 
-async def _handle(msg: dict[str, Any]) -> dict[str, Any] | None:
-    method = msg.get("method")
-    params = msg.get("params") or {}
-    rid = msg.get("id")
-    if method == "initialize":
-        return rpc_result(rid, {"protocolVersion": PROTOCOL_VERSION,
-                                "capabilities": {"tools": {}}, "serverInfo": SERVER_INFO,
-                                "instructions": INSTRUCTIONS})
-    if method and method.startswith("notifications/"):
-        return None
-    if method == "ping":
-        return rpc_result(rid, {})
-    if method == "tools/list":
-        return rpc_result(rid, {"tools": TOOLS})
-    if method == "tools/call":
-        name = params.get("name")
-        args = params.get("arguments") or {}
-        if name not in TOOL_HANDLERS:
-            return rpc_error(rid, -32601, f"Unbekanntes Tool: {name}")
-        try:
-            res = await TOOL_HANDLERS[name](args)
-        except ToolError as e:
-            return rpc_result(rid, {"content": [{"type": "text", "text": str(e)}],
-                                    "isError": True})
-        except (KeyError, ValueError, TypeError) as e:
-            return rpc_result(rid, {"content": [{"type": "text",
-                                                 "text": f"Ungültige Argumente: {e}"}],
-                                    "isError": True})
-        except Exception as e:  # noqa: BLE001
-            return rpc_error(rid, -32603, f"Tool-Fehler: {e}")
-        if isinstance(res, dict):
-            return rpc_result(rid, res)
-        return rpc_result(rid, {"content": [{"type": "text", "text": res}]})
-    return rpc_error(rid, -32601, f"Methode nicht gefunden: {method}")
+class _McpEndpoint:
+    """ASGI-Endpunkt: erst die bisherige Auth, dann das SDK."""
+
+    async def __call__(self, scope, receive, send) -> None:
+        await check_auth(Request(scope, receive))
+        await session_manager.handle_request(scope, receive, send)
 
 
-@app.post("/mcp")
-async def mcp_endpoint(request: Request):
-    await check_auth(request)
-    body = await request.json()
-    if isinstance(body, list):  # JSON-RPC-Batch
-        out = [r for r in [await _handle(m) for m in body] if r is not None]
-        return JSONResponse(out) if out else JSONResponse({}, status_code=202)
-    res = await _handle(body)
-    if res is None:
-        return JSONResponse({}, status_code=202)
-    return JSONResponse(res)
+app.add_route("/mcp", _McpEndpoint(), methods=["POST"])

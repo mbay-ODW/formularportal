@@ -7,8 +7,8 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
 WORKDIR /app
-RUN pip install "fastapi>=0.115,<0.116" "uvicorn[standard]>=0.32,<0.35" "httpx>=0.27,<0.29"
-COPY mcp /app/mcp
+RUN pip install "fastapi>=0.115,<0.116" "uvicorn[standard]>=0.32,<0.35" "httpx>=0.27,<0.29" "mcp>=2.3,<3"
+COPY mcp_server /app/mcp_server
 
 EXPOSE 3000
 
@@ -16,4 +16,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
     CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:3000/health',timeout=3).status==200 else 1)"
 
 ENTRYPOINT ["/usr/local/bin/env-secrets"]
-CMD ["uvicorn", "mcp.server:app", "--host", "0.0.0.0", "--port", "3000", "--proxy-headers", "--forwarded-allow-ips", "*"]
+CMD ["uvicorn", "mcp_server.server:app", "--host", "0.0.0.0", "--port", "3000", "--proxy-headers", "--forwarded-allow-ips", "*"]
